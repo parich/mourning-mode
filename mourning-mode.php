@@ -1,0 +1,155 @@
+<?php
+/**
+ * Plugin Name:       โหมดไว้อาลัย
+ * Plugin URI:        https://rmu.ac.th
+ * Description:       เปลี่ยนหน้าเว็บทั้งหมดเป็นโทนสีขาวดำ เพื่อน้อมรำลึกในพระมหากรุณาธิคุณ
+ * Version:           1.0.0
+ * Requires at least: 5.0
+ * Requires PHP:      7.4
+ * Author:            Mr.Parich Suriya
+ * License:           GPL-2.0-or-later
+ * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
+ * Text Domain:       mourning-mode
+ */
+
+if (!defined('ABSPATH')) {
+	exit;
+}
+
+/**
+ * Add admin menu
+ */
+function mourning_mode_admin_menu()
+{
+	add_options_page(
+		'ตั้งค่าโหมดไว้อาลัย',
+		'โหมดไว้อาลัย',
+		'manage_options',
+		'mourning-mode-settings',
+		'mourning_mode_settings_page'
+	);
+}
+add_action('admin_menu', 'mourning_mode_admin_menu');
+
+/**
+ * Register settings
+ */
+function mourning_mode_register_settings()
+{
+	register_setting('mourning_mode_settings_group', 'mourning_mode_enabled');
+	register_setting('mourning_mode_settings_group', 'mourning_mode_message');
+	register_setting('mourning_mode_settings_group', 'mourning_mode_ribbon_size', [
+		'type' => 'integer',
+		'default' => 150,
+		'sanitize_callback' => function ($val) {
+			$val = absint($val);
+			return max(50, min(500, $val));
+		},
+	]);
+}
+add_action('admin_init', 'mourning_mode_register_settings');
+
+/**
+ * Settings page
+ */
+function mourning_mode_settings_page()
+{
+	$enabled = get_option('mourning_mode_enabled', false);
+	$ribbon_size = get_option('mourning_mode_ribbon_size', 150);
+	?>
+	<div class="wrap">
+		<h1>ตั้งค่าโหมดไว้อาลัย</h1>
+		<form method="post" action="options.php">
+			<?php settings_fields('mourning_mode_settings_group'); ?>
+			<?php do_settings_sections('mourning_mode_settings_group'); ?>
+			<table class="form-table">
+				<tr valign="top">
+					<th scope="row">เปิดใช้งานโหมดไว้อาลัย</th>
+					<td>
+						<label>
+							<input type="checkbox" name="mourning_mode_enabled" value="1" <?php checked($enabled, true); ?> />
+							เปลี่ยนหน้าเว็บทั้งหมดเป็นโทนสีขาวดำ พร้อมโบว์ดำมุมขวาบน
+						</label>
+						<p class="description">เมื่อเปิดใช้งาน เว็บไซต์ทั้งหมดจะแสดงในโทนสีขาวดำ</p>
+					</td>
+				</tr>
+				<tr valign="top">
+					<th scope="row">ขนาดรูปโบว์ (px)</th>
+					<td>
+						<input type="number" name="mourning_mode_ribbon_size" value="<?php echo esc_attr($ribbon_size); ?>" min="50" max="500" step="10" style="width: 100px;" />
+						<p class="description">กำหนดขนาดรูปโบว์ไว้อาลัย (50-500 px, ค่าเริ่มต้น 150)</p>
+					</td>
+				</tr>
+			</table>
+			<?php submit_button(); ?>
+		</form>
+	</div>
+	<?php
+}
+
+/**
+ * Apply mourning mode styles to frontend
+ */
+function mourning_mode_apply_styles()
+{
+	if (!get_option('mourning_mode_enabled', false)) {
+		return;
+	}
+
+	$plugin_url = plugin_dir_url(__FILE__);
+	$size = absint(get_option('mourning_mode_ribbon_size', 150));
+	$size_tablet = round($size * 0.67);
+	$size_mobile = round($size * 0.53);
+	?>
+	<style id="mourning-mode-styles">
+		/* โหมดไว้อาลัย - เปลี่ยนทั้งหน้าเว็บเป็นโทนขาวดำ */
+		html {
+			filter: grayscale(100%) !important;
+			-webkit-filter: grayscale(100%) !important;
+		}
+
+		/* โบว์ไว้อาลัยมุมขวาบน */
+		body::before {
+			content: "";
+			display: block;
+			position: fixed;
+			top: 0;
+			right: 0;
+			width: <?php echo $size; ?>px;
+			height: <?php echo $size; ?>px;
+			background-image: url('<?php echo esc_url($plugin_url . 'black_ribbon_top_right.png'); ?>');
+			background-size: contain;
+			background-repeat: no-repeat;
+			background-position: top right;
+			z-index: 999999;
+			pointer-events: none;
+		}
+
+		/* สำหรับ admin bar */
+		body.admin-bar::before {
+			top: 32px;
+		}
+
+		/* Mobile responsive */
+		@media screen and (max-width: 782px) {
+			body.admin-bar::before {
+				top: 46px;
+			}
+
+			body::before {
+				width: <?php echo $size_tablet; ?>px;
+				height: <?php echo $size_tablet; ?>px;
+			}
+		}
+
+		@media screen and (max-width: 600px) {
+			body::before {
+				width: <?php echo $size_mobile; ?>px;
+				height: <?php echo $size_mobile; ?>px;
+			}
+		}
+	</style>
+	<?php
+}
+add_action('wp_head', 'mourning_mode_apply_styles', 1);
+
