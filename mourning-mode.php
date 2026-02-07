@@ -3,7 +3,7 @@
  * Plugin Name:       โหมดไว้อาลัย (Mourning Mode)
  * Plugin URI:        https://dokkooon.com
  * Description:       เปลี่ยนหน้าเว็บเป็นโทนสีขาวดำ พร้อมโบว์ดำมุมขวาบน สามารถเลือกแสดงโบว์/โทนขาวดำแยกกันได้ และปรับระดับความเข้มของสีได้
- * Version:           1.1.0
+ * Version:           1.2.0
  * Requires at least: 5.0
  * Requires PHP:      7.4
  * Author:            Mr.Parich Suriya
@@ -159,74 +159,177 @@ function mourning_mode_apply_styles()
 	$size = absint(get_option('mourning_mode_ribbon_size', 150));
 	$size_tablet = round($size * 0.67);
 	$size_mobile = round($size * 0.53);
-	?>
-	<style id="mourning-mode-styles">
-		<?php if ($show_grayscale): ?>
-			/* โหมดไว้อาลัย - เปลี่ยนทั้งหน้าเว็บเป็นโทนขาวดำ */
-			html {
-				filter: grayscale(<?php echo $grayscale_level; ?>%) !important;
-				-webkit-filter: grayscale(<?php echo $grayscale_level; ?>%) !important;
-			}
 
-		<?php endif; ?>
+	// Build CSS string to avoid linter breaking "100px" into "100 px"
+	$css = '';
 
-		<?php if ($show_ribbon): ?>
-			/* โบว์ไว้อาลัยมุมขวาบน */
-			body::before {
-				content: "";
-				display: block;
-				position: fixed;
-				top: 0;
-				right: 0;
-				width:
-					<?php echo $size; ?>
-					px;
-				height:
-					<?php echo $size; ?>
-					px;
-				background-image: url('<?php echo esc_url($plugin_url . 'black_ribbon_top_right.png'); ?>');
-				background-size: contain;
-				background-repeat: no-repeat;
-				background-position: top right;
-				z-index: 999999;
-				pointer-events: none;
-			}
+	if ($show_grayscale) {
+		$css .= "html { filter: grayscale({$grayscale_level}%) !important; -webkit-filter: grayscale({$grayscale_level}%) !important; }\n";
+	}
 
-			/* สำหรับ admin bar */
-			body.admin-bar::before {
-				top: 32px;
-			}
+	if ($show_ribbon) {
+		$ribbon_url = esc_url($plugin_url . 'black_ribbon_top_right.png');
+		$css .= "body::before { content: \"\"; display: block; position: fixed; top: 0; right: 0; width: {$size}px; height: {$size}px; background-image: url('{$ribbon_url}'); background-size: contain; background-repeat: no-repeat; background-position: top right; z-index: 999999; pointer-events: none; }\n";
+		$css .= "body.admin-bar::before { top: 32px; }\n";
+		$css .= "@media screen and (max-width: 782px) { body.admin-bar::before { top: 46px; } body::before { width: {$size_tablet}px; height: {$size_tablet}px; } }\n";
+		$css .= "@media screen and (max-width: 600px) { body::before { width: {$size_mobile}px; height: {$size_mobile}px; } }\n";
+	}
 
-			/* Mobile responsive */
-			@media screen and (max-width: 782px) {
-				body.admin-bar::before {
-					top: 46px;
-				}
-
-				body::before {
-					width:
-						<?php echo $size_tablet; ?>
-						px;
-					height:
-						<?php echo $size_tablet; ?>
-						px;
-				}
-			}
-
-			@media screen and (max-width: 600px) {
-				body::before {
-					width:
-						<?php echo $size_mobile; ?>
-						px;
-					height:
-						<?php echo $size_mobile; ?>
-						px;
-				}
-			}
-
-		<?php endif; ?>
-	</style>
-	<?php
+	if ($css) {
+		echo '<style id="mourning-mode-styles">' . "\n" . $css . '</style>' . "\n";
+	}
 }
 add_action('wp_head', 'mourning_mode_apply_styles', 1);
+
+/**
+ * GitHub Update Checker
+ */
+class Mourning_Mode_GitHub_Updater
+{
+	private $slug = 'mourning-mode';
+	private $plugin_file;
+	private $plugin_basename;
+	private $github_owner = 'parich';
+	private $github_repo = 'mourning-mode';
+	private $current_version;
+	private $github_response;
+	private $cache_key = 'mourning_mode_github_update';
+	private $cache_expiry = 21600; // 6 hours
+
+	public function __construct($plugin_file)
+	{
+		$this->plugin_file = $plugin_file;
+		$this->plugin_basename = plugin_basename($plugin_file);
+
+		$plugin_data = get_file_data($plugin_file, ['Version' => 'Version']);
+		$this->current_version = $plugin_data['Version'];
+
+		add_filter('pre_set_site_transient_update_plugins', [$this, 'check_update']);
+		add_filter('plugins_api', [$this, 'plugin_info'], 20, 3);
+		add_filter('upgrader_post_install', [$this, 'after_install'], 10, 3);
+	}
+
+	private function get_github_release()
+	{
+		if ($this->github_response !== null) {
+			return $this->github_response;
+		}
+
+		$cached = get_transient($this->cache_key);
+		if ($cached !== false) {
+			$this->github_response = $cached;
+			return $cached;
+		}
+
+		$url = "https://api.github.com/repos/{$this->github_owner}/{$this->github_repo}/releases/latest";
+		$response = wp_remote_get($url, [
+			'headers' => [
+				'Accept' => 'application/vnd.github.v3+json',
+				'User-Agent' => 'WordPress/' . get_bloginfo('version'),
+			],
+		]);
+
+		if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+			$this->github_response = false;
+			return false;
+		}
+
+		$body = json_decode(wp_remote_retrieve_body($response));
+		if (empty($body) || !isset($body->tag_name)) {
+			$this->github_response = false;
+			return false;
+		}
+
+		$this->github_response = $body;
+		set_transient($this->cache_key, $body, $this->cache_expiry);
+
+		return $body;
+	}
+
+	public function check_update($transient)
+	{
+		if (empty($transient->checked)) {
+			return $transient;
+		}
+
+		$release = $this->get_github_release();
+		if (!$release) {
+			return $transient;
+		}
+
+		$remote_version = ltrim($release->tag_name, 'v');
+
+		if (version_compare($remote_version, $this->current_version, '>')) {
+			$download_url = $release->zipball_url;
+
+			// Use uploaded zip asset if available
+			if (!empty($release->assets)) {
+				foreach ($release->assets as $asset) {
+					if (substr($asset->name, -4) === '.zip') {
+						$download_url = $asset->browser_download_url;
+						break;
+					}
+				}
+			}
+
+			$transient->response[$this->plugin_basename] = (object) [
+				'slug' => $this->slug,
+				'plugin' => $this->plugin_basename,
+				'new_version' => $remote_version,
+				'url' => $release->html_url,
+				'package' => $download_url,
+			];
+		}
+
+		return $transient;
+	}
+
+	public function plugin_info($result, $action, $args)
+	{
+		if ($action !== 'plugin_information' || $args->slug !== $this->slug) {
+			return $result;
+		}
+
+		$release = $this->get_github_release();
+		if (!$release) {
+			return $result;
+		}
+
+		$remote_version = ltrim($release->tag_name, 'v');
+
+		return (object) [
+			'name' => 'โหมดไว้อาลัย (Mourning Mode)',
+			'slug' => $this->slug,
+			'version' => $remote_version,
+			'author' => '<a href="https://github.com/parich">Mr.Parich Suriya</a>',
+			'homepage' => "https://github.com/{$this->github_owner}/{$this->github_repo}",
+			'requires' => '5.0',
+			'requires_php' => '7.4',
+			'sections' => [
+				'description' => 'เปลี่ยนหน้าเว็บเป็นโทนสีขาวดำ พร้อมโบว์ดำมุมขวาบน',
+				'changelog' => nl2br(esc_html($release->body ?? '')),
+			],
+			'download_link' => $release->zipball_url,
+		];
+	}
+
+	public function after_install($response, $hook_extra, $result)
+	{
+		if (!isset($hook_extra['plugin']) || $hook_extra['plugin'] !== $this->plugin_basename) {
+			return $result;
+		}
+
+		global $wp_filesystem;
+
+		$install_dir = plugin_dir_path($this->plugin_file);
+		$wp_filesystem->move($result['destination'], $install_dir);
+		$result['destination'] = $install_dir;
+
+		activate_plugin($this->plugin_basename);
+
+		return $result;
+	}
+}
+
+new Mourning_Mode_GitHub_Updater(__FILE__);
 
