@@ -37,9 +37,16 @@ add_action('admin_menu', 'mourning_mode_admin_menu');
  */
 function mourning_mode_register_settings()
 {
-	register_setting('mourning_mode_settings_group', 'mourning_mode_enabled');
-	register_setting('mourning_mode_settings_group', 'mourning_mode_message');
-	register_setting('mourning_mode_settings_group', 'mourning_mode_show_ribbon');
+	register_setting('mourning_mode_settings_group', 'mourning_mode_enabled', [
+		'sanitize_callback' => function ($val) {
+			return $val ? 1 : 0;
+		},
+	]);
+	register_setting('mourning_mode_settings_group', 'mourning_mode_show_ribbon', [
+		'sanitize_callback' => function ($val) {
+			return $val ? 1 : 0;
+		},
+	]);
 	register_setting('mourning_mode_settings_group', 'mourning_mode_ribbon_size', [
 		'type' => 'integer',
 		'default' => 150,
@@ -48,7 +55,11 @@ function mourning_mode_register_settings()
 			return max(50, min(500, $val));
 		},
 	]);
-	register_setting('mourning_mode_settings_group', 'mourning_mode_show_grayscale');
+	register_setting('mourning_mode_settings_group', 'mourning_mode_show_grayscale', [
+		'sanitize_callback' => function ($val) {
+			return $val ? 1 : 0;
+		},
+	]);
 	register_setting('mourning_mode_settings_group', 'mourning_mode_grayscale_level', [
 		'type' => 'integer',
 		'default' => 100,
@@ -56,6 +67,15 @@ function mourning_mode_register_settings()
 			$val = absint($val);
 			return max(0, min(100, $val));
 		},
+	]);
+	register_setting('mourning_mode_settings_group', 'mourning_mode_show_message', [
+		'sanitize_callback' => function ($val) {
+			return $val ? 1 : 0;
+		},
+	]);
+	register_setting('mourning_mode_settings_group', 'mourning_mode_message', [
+		'default' => 'น้อมรำลึกในพระมหากรุณาธิคุณอันหาที่สุดมิได้',
+		'sanitize_callback' => 'sanitize_text_field',
 	]);
 }
 add_action('admin_init', 'mourning_mode_register_settings');
@@ -70,6 +90,8 @@ function mourning_mode_settings_page()
 	$ribbon_size = get_option('mourning_mode_ribbon_size', 150);
 	$show_grayscale = get_option('mourning_mode_show_grayscale', true);
 	$grayscale_level = get_option('mourning_mode_grayscale_level', 100);
+	$show_message = get_option('mourning_mode_show_message', false);
+	$message = get_option('mourning_mode_message', 'น้อมรำลึกในพระมหากรุณาธิคุณอันหาที่สุดมิได้');
 	?>
 	<div class="wrap">
 		<h1>ตั้งค่าโหมดไว้อาลัย</h1>
@@ -125,6 +147,23 @@ function mourning_mode_settings_page()
 						<p class="description">0% = สีปกติ, 100% = ขาวดำทั้งหมด (ค่าเริ่มต้น 100%)</p>
 					</td>
 				</tr>
+				<tr valign="top">
+					<th scope="row">แสดงข้อความไว้อาลัย</th>
+					<td>
+						<label>
+							<input type="checkbox" name="mourning_mode_show_message" value="1" <?php checked($show_message, true); ?> />
+							แสดงแถบข้อความด้านบนของหน้าเว็บ
+						</label>
+					</td>
+				</tr>
+				<tr valign="top">
+					<th scope="row">ข้อความ</th>
+					<td>
+						<input type="text" name="mourning_mode_message" value="<?php echo esc_attr($message); ?>"
+							class="large-text" />
+						<p class="description">ข้อความที่จะแสดงในแถบด้านบนของหน้าเว็บ</p>
+					</td>
+				</tr>
 			</table>
 			<?php submit_button(); ?>
 		</form>
@@ -163,8 +202,20 @@ function mourning_mode_apply_styles()
 	// Build CSS string to avoid linter breaking "100px" into "100 px"
 	$css = '';
 
+	$show_message = get_option('mourning_mode_show_message', false);
+
 	if ($show_grayscale) {
 		$css .= "html { filter: grayscale({$grayscale_level}%) !important; -webkit-filter: grayscale({$grayscale_level}%) !important; }\n";
+	}
+
+	if ($show_message) {
+		$css .= "#mourning-mode-banner { position: fixed; top: 0; left: 0; width: 100%; background: #000; color: #fff; text-align: center; padding: 10px 15px; font-size: 14px; z-index: 999998; box-sizing: border-box; }\n";
+		$css .= "body { margin-top: 38px !important; }\n";
+		$css .= "body.admin-bar #mourning-mode-banner { top: 32px; }\n";
+		$css .= "body.admin-bar { margin-top: 38px !important; }\n";
+		$css .= ".site-header.affix-top, .site-header.sticky-header, header.fixed-top, .sticky-header { top: 38px !important; }\n";
+		$css .= "body.admin-bar .site-header.affix-top, body.admin-bar .site-header.sticky-header, body.admin-bar header.fixed-top, body.admin-bar .sticky-header { top: 70px !important; }\n";
+		$css .= "@media screen and (max-width: 782px) { body.admin-bar #mourning-mode-banner { top: 46px; } .site-header.affix-top, .site-header.sticky-header { top: 38px !important; } body.admin-bar .site-header.affix-top, body.admin-bar .site-header.sticky-header { top: 84px !important; } }\n";
 	}
 
 	if ($show_ribbon) {
@@ -180,6 +231,27 @@ function mourning_mode_apply_styles()
 	}
 }
 add_action('wp_head', 'mourning_mode_apply_styles', 1);
+
+/**
+ * Display mourning message banner
+ */
+function mourning_mode_display_message()
+{
+	if (!get_option('mourning_mode_enabled', false)) {
+		return;
+	}
+	if (!get_option('mourning_mode_show_message', false)) {
+		return;
+	}
+
+	$message = get_option('mourning_mode_message', 'น้อมรำลึกในพระมหากรุณาธิคุณอันหาที่สุดมิได้');
+	if (empty($message)) {
+		return;
+	}
+
+	echo '<div id="mourning-mode-banner">' . esc_html($message) . '</div>' . "\n";
+}
+add_action('wp_footer', 'mourning_mode_display_message', 1);
 
 /**
  * GitHub Update Checker
@@ -297,6 +369,16 @@ class Mourning_Mode_GitHub_Updater
 
 		$remote_version = ltrim($release->tag_name, 'v');
 
+		$download_url = $release->zipball_url;
+		if (!empty($release->assets)) {
+			foreach ($release->assets as $asset) {
+				if (substr($asset->name, -4) === '.zip') {
+					$download_url = $asset->browser_download_url;
+					break;
+				}
+			}
+		}
+
 		return (object) [
 			'name' => 'โหมดไว้อาลัย (Mourning Mode)',
 			'slug' => $this->slug,
@@ -309,7 +391,7 @@ class Mourning_Mode_GitHub_Updater
 				'description' => 'เปลี่ยนหน้าเว็บเป็นโทนสีขาวดำ พร้อมโบว์ดำมุมขวาบน',
 				'changelog' => nl2br(esc_html($release->body ?? '')),
 			],
-			'download_link' => $release->zipball_url,
+			'download_link' => $download_url,
 		];
 	}
 
@@ -322,6 +404,12 @@ class Mourning_Mode_GitHub_Updater
 		global $wp_filesystem;
 
 		$install_dir = plugin_dir_path($this->plugin_file);
+
+		// Remove old plugin folder before moving new one
+		if ($wp_filesystem->exists($install_dir)) {
+			$wp_filesystem->delete($install_dir, true);
+		}
+
 		$wp_filesystem->move($result['destination'], $install_dir);
 		$result['destination'] = $install_dir;
 
