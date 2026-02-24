@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name:       โหมดไว้อาลัย (Mourning Mode)
- * Plugin URI:        https://dokkooon.com
+ * Plugin URI:        https://github.com/parich/mourning-mode/releases/
  * Description:       เปลี่ยนหน้าเว็บเป็นโทนสีขาวดำ พร้อมโบว์ดำมุมขวาบน สามารถเลือกแสดงโบว์/โทนขาวดำแยกกันได้ และปรับระดับความเข้มของสีได้
- * Version:           1.3.0
+ * Version:           1.3.1
  * Requires at least: 5.0
  * Requires PHP:      7.4
  * Author:            Mr.Parich Suriya
